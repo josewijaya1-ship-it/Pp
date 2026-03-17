@@ -2,64 +2,70 @@ import streamlit as st
 import google.generativeai as genai
 from PIL import Image
 
-# --- 1. CONFIG ---
-st.set_page_config(page_title="AI Studio v2.5", page_icon="🎨")
+# --- KONFIGURASI HALAMAN ---
+st.set_page_config(page_title="AI Studio v2.5", page_icon="🎨", layout="centered")
 
-# --- 2. API SETUP ---
-if "GEMINI_API_KEY" not in st.secrets:
-    st.error("API Key belum diset di Secrets!")
+# --- KONFIGURASI API ---
+try:
+    # Membaca API Key dari Secrets Streamlit
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+    
+    # Menggunakan model Generative paling stabil
+    # Kami tidak memanggil 'imagen-3' secara langsung untuk menghindari error 404
+    model = genai.GenerativeModel("gemini-1.5-flash")
+except Exception as e:
+    st.error(f"API Key bermasalah: {e}")
     st.stop()
 
-genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+# --- SISTEM PENYIMPANAN SESSION ---
+if "image_chats" not in st.session_state:
+    st.session_state.image_chats = []
 
-# --- 3. SESSION STATE ---
-if "messages" not in st.session_state:
-    st.session_state.messages = []
-
-# --- 4. TAMPILAN ---
+# --- TAMPILAN UTAMA ---
 st.title("🎨 AI Image Studio v2.5")
-st.caption("Mode Kompatibilitas Maksimal")
+st.markdown("Buat gambar apa pun yang ada di imajinasimu secara instan.")
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        if msg["type"] == "text":
-            st.write(msg["content"])
+# Menampilkan Riwayat Chat & Gambar
+for chat in st.session_state.image_history if "image_history" in st.session_state else []:
+    with st.chat_message(chat["role"]):
+        if chat["type"] == "text":
+            st.markdown(chat["content"])
         else:
-            st.image(msg["content"], use_container_width=True)
+            st.image(chat["content"], use_container_width=True)
 
-# --- 5. LOGIKA GENERATE ---
-if prompt := st.chat_input("Contoh: Lukisan cat air bunga mawar..."):
-    st.session_state.messages.append({"role": "user", "type": "text", "content": prompt})
+# --- INPUT USER & LOGIKA AI ---
+if prompt := st.chat_input("Deskripsikan gambar (contoh: Pemandangan sawah di Bali)..."):
+    
+    # Simpan dan tampilkan pesan user
+    if "image_history" not in st.session_state:
+        st.session_state.image_history = []
+    
+    st.session_state.image_history.append({"role": "user", "type": "text", "content": prompt})
     with st.chat_message("user"):
-        st.write(prompt)
+        st.markdown(prompt)
 
+    # Respon AI
     with st.chat_message("assistant"):
-        with st.spinner("Sedang membuat gambar..."):
+        with st.spinner("Sedang melukis..."):
             try:
-                # MENGGUNAKAN MODEL FLASH UNTUK MENGHASILKAN GAMBAR
-                # Ini adalah cara paling stabil jika model 'imagen' spesifik ditolak
-                model = genai.GenerativeModel("gemini-2.5-flash")
+                # Perintah khusus agar model memicu pembuatan gambar (Imagen)
+                response = model.generate_content(f"Generate an image of: {prompt}")
                 
-                # Kita kirim instruksi spesifik agar dia memberikan output gambar
-                response = model.generate_content(
-                    f"Generate a high quality image based on this description: {prompt}. "
-                    "Return ONLY the image data."
-                )
-                
-                # Cek apakah ada data gambar dalam response
-                found_image = False
+                # Cek apakah ada data gambar di dalam response
+                found_img = False
                 for part in response.candidates[0].content.parts:
-                    if hasattr(part, 'inline_data'):
+                    if hasattr(part, 'inline_data'): # Ini adalah data gambar mentah
                         img_data = part.inline_data.data
                         st.image(img_data, use_container_width=True)
-                        st.session_state.messages.append({"role": "assistant", "type": "image", "content": img_data})
-                        found_image = True
+                        st.session_state.image_history.append({"role": "assistant", "type": "image", "content": img_data})
+                        found_img = True
                         break
                 
-                if not found_image:
-                    # Jika response hanya teks, tampilkan teksnya
+                if not found_img:
+                    # Jika AI hanya menjawab teks
                     st.write(response.text)
-                    st.warning("AI memberikan respon teks. Pastikan akun Anda mendukung fitur Image Generation.")
+                    st.info("Catatan: Google sedang membatasi fitur gambar di beberapa region.")
+                    st.session_state.image_history.append({"role": "assistant", "type": "text", "content": response.text})
                 
             except Exception as e:
-                st.error(f"Kesalahan sistem: {e}")
+                st.error(f"Gagal memproses gambar: {e}")
