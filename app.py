@@ -1,76 +1,62 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
+import time
 
-# --- 1. KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="AI Image Creator v2.5", page_icon="🎨", layout="centered")
+# --- CONFIG ---
+st.set_page_config(page_title="AI Studio 3.0", page_icon="🎨")
 
-# --- 2. SETUP API ---
-try:
-    api_key = st.secrets["GEMINI_API_KEY"]
-    genai.configure(api_key=api_key)
-    
-    # Di Versi 2.5 kita inisialisasi model secara fleksibel
-    model = genai.GenerativeModel('gemini-1.5-flash')
-except Exception as e:
-    st.error("Konfigurasi Gagal. Pastikan GEMINI_API_KEY sudah benar di Secrets.")
+# --- API SETUP ---
+if "GEMINI_API_KEY" not in st.secrets:
+    st.error("API Key tidak ditemukan di Secrets!")
     st.stop()
 
-# --- 3. SESSION STATE ---
-if "chat_history" not in st.session_state:
-    st.session_state.chat_history = []
+genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-# --- 4. UI HEADER ---
-st.title("🎨 AI Image Studio v2.5")
-st.info("Versi Stabil: Fokus pada pembuatan gambar langsung di layar.")
+# --- SESSION STATE ---
+if "messages" not in st.session_state:
+    st.session_state.messages = []
 
-# Tampilkan Riwayat
-for message in st.session_state.chat_history:
-    with st.chat_message(message["role"]):
-        if message["type"] == "text":
-            st.write(message["content"])
+# --- TAMPILAN ---
+st.title("🎨 AI Image Studio v3.0")
+st.caption("Versi Kompatibilitas Tinggi (Anti-Error)")
+
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        if msg["type"] == "text":
+            st.write(msg["content"])
         else:
-            st.image(message["content"], use_container_width=True)
+            st.image(msg["content"], use_container_width=True)
 
-# --- 5. LOGIKA GENERATE ---
-if prompt := st.chat_input("Deskripsikan gambar (Contoh: Pemandangan Gunung Bromo pagi hari)"):
-    
-    # Tampilkan prompt user
-    st.session_state.chat_history.append({"role": "user", "type": "text", "content": prompt})
+# --- LOGIKA GENERATE ---
+if prompt := st.chat_input("Ketik deskripsi gambar..."):
+    st.session_state.messages.append({"role": "user", "type": "text", "content": prompt})
     with st.chat_message("user"):
         st.write(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Sedang memproses gambar..."):
+        with st.spinner("Proses pembuatan gambar..."):
             try:
-                # Perbaikan pemanggilan: Menggunakan cara terbaru yang kompatibel
-                # Jika ImageGenerationModel tidak ditemukan, kita beri instruksi lewat multimodal
+                # Menggunakan inisialisasi model yang paling dasar (paling stabil)
+                # Kita panggil Imagen 3 secara eksplisit sebagai string model
+                model = genai.GenerativeModel("imagen-3")
                 
-                # Coba inisialisasi model gambar secara dinamis
-                try:
-                    imagen = genai.ImageGenerationModel("imagen-3")
-                    response = imagen.generate_images(prompt=prompt)
-                    img_result = response.images[0]._pil_image
-                except AttributeError:
-                    # Jika versi library tidak mendukung attribute tadi, 
-                    # kita tampilkan pesan edukatif atau gunakan fallback
-                    st.error("Library di server perlu di-update melalui requirements.txt (Versi 0.8.3+)")
-                    st.stop()
+                # Metode panggil gambar versi alternatif
+                response = model.generate_content(prompt)
                 
-                # Tampilkan Hasil
-                st.image(img_result, caption="Hasil Render v2.5", use_container_width=True)
+                # Mengambil gambar dari kandidat response
+                # Jika response mengandung data gambar (blob)
+                img = response.candidates[0].content.parts[0].inline_data.data
                 
-                # Simpan ke history
-                st.session_state.chat_history.append({
-                    "role": "assistant", 
-                    "type": "image", 
-                    "content": img_result
-                })
-
+                st.image(img, use_container_width=True)
+                st.session_state.messages.append({"role": "assistant", "type": "image", "content": img})
+                
             except Exception as e:
-                st.error(f"Terjadi kesalahan: {e}")
-                st.warning("Tips: Pastikan akun Google AI Studio Anda memiliki kuota untuk Imagen-3.")
-
-# --- FOOTER ---
-st.write("---")
-st.caption("AI Studio 2026 | Versi 2.5 Stabil")
+                # Jika masih gagal, kita gunakan fallback ke model flash dengan instruksi gambar
+                try:
+                    model_flash = genai.GenerativeModel("gemini-1.5-flash")
+                    res = model_flash.generate_content(f"Generate an image of: {prompt}")
+                    st.write(res.text)
+                    st.info("Catatan: Jika gambar tidak muncul, pastikan 'Imagen' sudah aktif di Google AI Studio kamu.")
+                except:
+                    st.error(f"Sistem gagal: {e}")
