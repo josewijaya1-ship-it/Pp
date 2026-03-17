@@ -1,126 +1,196 @@
 import streamlit as st
 import requests
-import time
 import google.generativeai as genai
 
 # --- KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="AI Creative Studio", page_icon="🎬", layout="wide")
+st.set_page_config(page_title="AI Photo Studio", page_icon="🖼️", layout="wide")
 
 # --- KONFIGURASI API (Secrets) ---
+# Di Streamlit Cloud, konfigurasi ini diisi di bagian Settings > Secrets
 try:
-    # Simpan key ini di Streamlit Cloud Secrets atau .streamlit/secrets.toml
+    # Key untuk Stability AI (Generasi Gambar)
     STABILITY_API_KEY = st.secrets["STABILITY_API_KEY"]
-    LUMA_API_KEY = st.secrets["LUMA_API_KEY"]
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"]) # Untuk auto-title & deskripsi
+    
+    # Key untuk Google Gemini (Fitur Pembantu: Judul & Deskripsi Otomatis)
+    genai.configure(api_key=st.secrets["GEMINI_API_KEY"]) 
 except Exception:
-    st.error("API Keys (Stability, Luma, Gemini) belum terpasang di Secrets!")
+    st.error("API Keys (Stability AI & Gemini) belum terpasang di Secrets! Aplikasi tidak bisa berjalan.")
     st.stop()
 
+# Inisialisasi model Gemini (pilih yang cepat/flash)
 model_gemini = genai.GenerativeModel("gemini-2.5-flash")
 
-# --- SISTEM PENYIMPANAN SESSION ---
-if "all_projects" not in st.session_state:
-    st.session_state.all_projects = {} 
+# --- SISTEM PENYIMPANAN SESSION (RIWAYAT) ---
+# Menggunakan st.session_state agar data tidak hilang saat re-run halaman
+if "all_photos" not in st.session_state:
+    st.session_state.all_photos = {} 
 
-if "current_project_id" not in st.session_state:
-    st.session_state.current_project_id = None
+if "current_photo_id" not in st.session_state:
+    st.session_state.current_photo_id = None
 
-# --- FUNGSI PEMBANTU ---
-def generate_project_title(prompt):
+# --- FUNGSI PEMBANTU (Helper Functions) ---
+
+# Fungsi untuk membuat judul singkat menggunakan AI Gemini
+def generate_photo_title(prompt):
     try:
-        response = model_gemini.generate_content(f"Buat judul singkat (max 3 kata) untuk project visual ini: {prompt}")
+        if not prompt: return "Foto Tanpa Prompt"
+        # Meminta Gemini meringkas prompt menjadi 3 kata
+        response = model_gemini.generate_content(f"Buat judul singkat (max 3 kata) dalam Bahasa Indonesia untuk hasil foto dari deskripsi ini: {prompt}")
         return response.text.strip()
     except:
-        return "Project Baru"
+        return "Foto Baru"
 
-# --- SIDEBAR: RIWAYAT GENERASI ---
+# Fungsi inti untuk memanggil API Stability AI (Versi Ultra 2026)
+def generate_image_ultra(prompt, ratio, model_ai="ultra"):
+    """
+    Memanggil API Stability AI versi terbaru (v2beta ultra).
+    Returns: Bytes data gambar jika sukses, None jika gagal.
+    """
+    # Endpoint terbaru untuk generasi kualitas tertinggi
+    url = f"https://api.stability.ai/v2beta/stable-image/generate/{model_ai}"
+    
+    headers = {
+        "authorization": f"Bearer {STABILITY_API_KEY}",
+        "accept": "image/*" # Kita ingin hasil dalam bentuk binary gambar
+    }
+    
+    # Data dikirim sebagai multipart/form-data
+    data = {
+        "prompt": prompt,
+        "output_format": "webp", # webp memberikan kompresi bagus dengan kualitas tinggi
+        "aspect_ratio": ratio    # Rasio aspek yang dipilih user
+    }
+    
+    # Files kosong diperlukan karena API membutuhkan multipart request
+    files = {"none": ''}
+    
+    try:
+        response = requests.post(url, headers=headers, files=files, data=data)
+        if response.status_code == 200:
+            return response.content # Mengembalikan bytes gambar
+        else:
+            # Mengembalikan pesan error dari API
+            error_data = response.json()
+            st.error(f"Error API: {error_data.get('errors', 'Kesalahan tidak diketahui')}")
+            return None
+    except Exception as e:
+        st.error(f"Gagal terhubung ke API: {e}")
+        return None
+
+# --- SIDEBAR: DAFTAR RIWAYAT FOTO ---
 with st.sidebar:
-    st.title("🎨 My Creations")
-    if st.button("+ Project Baru", use_container_width=True):
-        st.session_state.current_project_id = None
+    st.title("🖼️ Galeri Saya")
+    st.caption("Fokus: Generasi Foto Ultra High-Def")
+    
+    # Tombol untuk mereset input dan membuat foto baru
+    if st.button("+ Buat Foto Baru", use_container_width=True):
+        st.session_state.current_photo_id = None
         st.rerun()
 
     st.write("---")
-    for proj_id in list(st.session_state.all_projects.keys()):
-        if st.button(f"🚀 {proj_id}", key=proj_id, use_container_width=True):
-            st.session_state.current_project_id = proj_id
+    # Menampilkan riwayat foto yang sudah dibuat dalam session ini
+    st.subheader("Riwayat Sesi Ini")
+    for photo_id in list(st.session_state.all_photos.keys()):
+        # Gunakan tombol berikon untuk memilih foto dari riwayat
+        if st.button(f"📷 {photo_id}", key=photo_id, use_container_width=True):
+            st.session_state.current_photo_id = photo_id
             st.rerun()
 
 # --- TAMPILAN UTAMA ---
-st.title("🎬 AI Image & Video Studio")
-st.markdown("Hasilkan konten visual berkualitas tinggi menggunakan **Stability AI Ultra** & **Luma Dream Machine**.")
+st.title("🎨 AI Photo Studio: Ultra Generation")
+st.markdown("Hasilkan foto dan gambar digital dengan detail luar biasa menggunakan teknologi **Stability AI Ultra** terbaru.")
 
-# Tab Selection
-tab1, tab2 = st.tabs(["🖼️ Image Generator", "🎥 Video Generator"])
-
-# --- LOGIKA GENERATE GAMBAR ---
-with tab1:
-    with st.form("img_form"):
-        img_prompt = st.text_area("Deskripsikan Gambar:", placeholder="Contoh: Astronot menunggang kuda di bulan, gaya digital art...")
-        ratio = st.selectbox("Aspek Rasio", ["1:1", "16:9", "9:16", "21:9"])
-        submitted_img = st.form_submit_button("Generate Image")
-
-    if submitted_img and img_prompt:
-        project_name = generate_project_title(img_prompt)
-        st.session_state.current_project_id = project_name
+# Menggunakan expander untuk menyembunyikan form input agar tampilan bersih
+with st.expander("📝 Masukkan Deskripsi Foto (Prompt)", expanded=True):
+    with st.form("photo_form"):
+        # Input deskripsi utama
+        img_prompt = st.text_area(
+            "Deskripsikan foto yang kamu inginkan:", 
+            placeholder="Contoh: Portrait seekor kucing cybernetic di pasar masa depan, pencahayaan neon, gaya cyberpunk, detail tinggi, f/1.8..."
+        )
         
-        with st.spinner("Sedang melukis..."):
-            url = "https://api.stability.ai/v2beta/stable-image/generate/ultra"
-            headers = {"authorization": f"Bearer {STABILITY_API_KEY}", "accept": "image/*"}
-            files = {"none": ''}
-            data = {"prompt": img_prompt, "output_format": "webp", "aspect_ratio": ratio}
+        # Opsi pengaturan rasio aspek
+        col1, col2 = st.columns(2)
+        with col1:
+            ratio = st.selectbox("Aspek Rasio (Ukuran)", ["1:1 (Kotak)", "16:9 (Cinematic)", "9:16 (Phone Story)", "3:2 (Fotografi)", "21:9 (Ultrawide)"])
+        with col2:
+            # Membersihkan pilihan rasio untuk dikirim ke API (mengambil angkanya saja)
+            clean_ratio = ratio.split(" ")[0]
+            st.caption(f"Akan diproses dengan rasio: {clean_ratio}")
             
-            response = requests.post(url, headers=headers, files=files, data=data)
-            
-            if response.status_code == 200:
-                img_data = response.content
-                st.image(img_data, caption=project_name)
-                # Simpan ke riwayat
-                st.session_state.all_projects[project_name] = {"type": "image", "content": img_data, "prompt": img_prompt}
-            else:
-                st.error(f"Gagal: {response.json().get('errors')}")
+        # Tombol submit form
+        submitted = st.form_submit_button("Generate Ultra Photo")
 
-# --- LOGIKA GENERATE VIDEO ---
-with tab2:
-    with st.form("vid_form"):
-        vid_prompt = st.text_area("Deskripsikan Video:", placeholder="Contoh: Kamera bergerak cinematic mengikuti mobil sport di Tokyo...")
-        submitted_vid = st.form_submit_button("Generate Video")
-
-    if submitted_vid and vid_prompt:
-        project_name = generate_project_title(vid_prompt)
-        st.session_state.current_project_id = project_name
-        
-        with st.spinner("Luma sedang merender (1-2 menit)..."):
-            # Request ke Luma AI API
-            luma_url = "https://api.lumalabs.ai/dream-machine/v1/generations"
-            headers = {"Authorization": f"Bearer {LUMA_API_KEY}", "Content-Type": "application/json"}
-            payload = {"prompt": vid_prompt}
-            
-            res = requests.post(luma_url, headers=headers, json=payload)
-            if res.status_code == 201:
-                gen_id = res.json()['id']
-                # Polling Status
-                while True:
-                    check = requests.get(f"{luma_url}/{gen_id}", headers=headers).json()
-                    if check['state'] == "completed":
-                        video_url = check['assets']['video']
-                        st.video(video_url)
-                        st.session_state.all_projects[project_name] = {"type": "video", "content": video_url, "prompt": vid_prompt}
-                        break
-                    elif check['state'] == "failed":
-                        st.error("Generasi video gagal.")
-                        break
-                    time.sleep(10)
-            else:
-                st.error("API Video bermasalah.")
-
-# --- TAMPILKAN PROJECT DARI RIWAYAT ---
-if st.session_state.current_project_id in st.session_state.all_projects:
-    data = st.session_state.all_projects[st.session_state.current_project_id]
-    st.write("---")
-    st.subheader(f"Detail Project: {st.session_state.current_project_id}")
-    st.info(f"Prompt: {data['prompt']}")
-    if data['type'] == "image":
-        st.image(data['content'])
+# --- LOGIKA GENERASI FOTO ---
+if submitted:
+    if not img_prompt:
+        st.warning("Silakan masukkan deskripsi foto terlebih dahulu!")
     else:
-        st.video(data['content'])
+        # 1. Buat judul otomatis dengan Gemini (agar rapi di sidebar)
+        with st.spinner("AI sedang merencanakan judul..."):
+            project_name = generate_photo_title(img_prompt)
+        
+        # Set project ini sebagai yang aktif saat ini
+        st.session_state.current_photo_id = project_name
+        
+        # 2. Panggil API untuk generate gambar
+        # Menggunakan status untuk memberikan feedback proses
+        with st.status("Sedang melukis foto ultra high-def...", expanded=True) as status:
+            st.write("Menghubungi Stability AI...")
+            img_data = generate_image_ultra(img_prompt, clean_ratio)
+            
+            if img_data:
+                status.update(label="Generasi foto selesai!", state="complete", expanded=False)
+                
+                # Tampilkan hasilnya langsung
+                st.write("---")
+                st.subheader(f"Hasil: {project_name}")
+                st.image(img_data, caption=img_prompt, use_container_width=True)
+                
+                # Sediakan tombol download
+                st.download_button(
+                    label="💾 Download Foto (WEBP)",
+                    data=img_data,
+                    file_name=f"{project_name.replace(' ', '_').lower()}.webp",
+                    mime="image/webp"
+                )
+                
+                # 3. Simpan hasil ke session state (riwayat)
+                st.session_state.all_photos[project_name] = {
+                    "content": img_data, 
+                    "prompt": img_prompt,
+                    "ratio": ratio
+                }
+            else:
+                status.update(label="Generasi foto gagal.", state="error", expanded=True)
+
+# --- TAMPILAN JIKA MEMILIH DARI RIWAYAT ---
+# Jika user mengeklik judul di sidebar, tampilkan detail yang disimpan
+if st.session_state.current_photo_id and not submitted:
+    # Mengambil data dari storage berdasarkan ID yang dipilih
+    data = st.session_state.all_photos.get(st.session_state.current_photo_id)
+    
+    if data:
+        st.write("---")
+        st.subheader(f"Viewing: {st.session_state.current_photo_id}")
+        
+        # Layout kolom untuk detail
+        col_img, col_txt = st.columns([3, 1])
+        
+        with col_img:
+            # Tampilkan foto
+            st.image(data['content'], use_container_width=True)
+            
+        with col_txt:
+            # Tampilkan info dan tombol
+            st.info(f"**Prompt:**\n{data['prompt']}")
+            st.caption(f"**Aspek Rasio:** {data['ratio']}")
+            
+            # Tombol download untuk foto di riwayat
+            st.download_button(
+                label="💾 Download Again",
+                data=data['content'],
+                file_name=f"{st.session_state.current_photo_id.replace(' ', '_').lower()}.webp",
+                mime="image/webp",
+                use_container_width=True
+            )
