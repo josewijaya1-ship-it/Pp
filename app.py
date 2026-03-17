@@ -12,7 +12,7 @@ try:
     
     # Menggunakan model Generative paling stabil
     # Kami tidak memanggil 'imagen-3' secara langsung untuk menghindari error 404
-    model = genai.GenerativeModel("gemini-1.5-flash")
+    model = genai.GenerativeModel("gemini-2.5-flash")
 except Exception as e:
     st.error(f"API Key bermasalah: {e}")
     st.stop()
