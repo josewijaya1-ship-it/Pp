@@ -3,7 +3,7 @@ import google.generativeai as genai
 from PIL import Image
 
 # --- 1. CONFIG ---
-st.set_page_config(page_title="AI Studio v3.5", page_icon="🎨")
+st.set_page_config(page_title="AI Studio v2.5", page_icon="🎨")
 
 # --- 2. API SETUP ---
 if "GEMINI_API_KEY" not in st.secrets:
@@ -17,7 +17,7 @@ if "messages" not in st.session_state:
     st.session_state.messages = []
 
 # --- 4. TAMPILAN ---
-st.title("🎨 AI Image Studio v3.5")
+st.title("🎨 AI Image Studio v2.5")
 st.caption("Mode Kompatibilitas Maksimal")
 
 for msg in st.session_state.messages:
@@ -38,7 +38,7 @@ if prompt := st.chat_input("Contoh: Lukisan cat air bunga mawar..."):
             try:
                 # MENGGUNAKAN MODEL FLASH UNTUK MENGHASILKAN GAMBAR
                 # Ini adalah cara paling stabil jika model 'imagen' spesifik ditolak
-                model = genai.GenerativeModel("gemini-1.5-flash")
+                model = genai.GenerativeModel("gemini-2.5-flash")
                 
                 # Kita kirim instruksi spesifik agar dia memberikan output gambar
                 response = model.generate_content(
