@@ -1,75 +1,76 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
-import io
 
 # --- 1. KONFIGURASI HALAMAN ---
-st.set_page_config(page_title="AI Image Generator", page_icon="🎨", layout="centered")
+st.set_page_config(page_title="AI Image Creator v2.5", page_icon="🎨", layout="centered")
 
 # --- 2. SETUP API ---
 try:
-    # Mengambil key dari Secrets Streamlit
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    # Menggunakan model Imagen terbaru (Nano Banana 2 / Imagen 3)
-    model_imagen = genai.ImageGenerationModel("imagen-3") 
+    api_key = st.secrets["GEMINI_API_KEY"]
+    genai.configure(api_key=api_key)
+    
+    # Di Versi 2.5 kita inisialisasi model secara fleksibel
+    model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
-    st.error(f"Konfigurasi Gagal: {e}")
+    st.error("Konfigurasi Gagal. Pastikan GEMINI_API_KEY sudah benar di Secrets.")
     st.stop()
 
-# --- 3. SESSION STATE (Penyimpanan Chat) ---
-if "image_history" not in st.session_state:
-    st.session_state.image_history = []
+# --- 3. SESSION STATE ---
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-# --- 4. TAMPILAN UTAMA ---
-st.title("🎨 AI Image Studio")
-st.markdown("Ketik deskripsi gambar yang kamu inginkan, dan AI akan melukisnya untukmu.")
+# --- 4. UI HEADER ---
+st.title("🎨 AI Image Studio v2.5")
+st.info("Versi Stabil: Fokus pada pembuatan gambar langsung di layar.")
 
-# Tampilkan history gambar yang sudah dibuat sebelumnya
-for chat in st.session_state.image_history:
-    with st.chat_message(chat["role"]):
-        if chat["type"] == "text":
-            st.write(chat["content"])
+# Tampilkan Riwayat
+for message in st.session_state.chat_history:
+    with st.chat_message(message["role"]):
+        if message["type"] == "text":
+            st.write(message["content"])
         else:
-            st.image(chat["content"], use_container_width=True, caption="Hasil Kreasi AI")
+            st.image(message["content"], use_container_width=True)
 
 # --- 5. LOGIKA GENERATE ---
-if prompt := st.chat_input("Contoh: Lukisan kucing astronot di bulan..."):
+if prompt := st.chat_input("Deskripsikan gambar (Contoh: Pemandangan Gunung Bromo pagi hari)"):
     
-    # Simpan prompt user ke layar
-    st.session_state.image_history.append({"role": "user", "type": "text", "content": prompt})
+    # Tampilkan prompt user
+    st.session_state.chat_history.append({"role": "user", "type": "text", "content": prompt})
     with st.chat_message("user"):
         st.write(prompt)
 
-    # Proses Generate Gambar
     with st.chat_message("assistant"):
-        with st.spinner("🚀 Sedang mengimajinasikan gambarmu..."):
+        with st.spinner("Sedang memproses gambar..."):
             try:
-                # Memanggil API Imagen
-                response = model_imagen.generate_images(
-                    prompt=prompt,
-                    number_of_images=1,
-                    safety_filter_level="block_some",
-                    person_generation="allow_adult"
-                )
+                # Perbaikan pemanggilan: Menggunakan cara terbaru yang kompatibel
+                # Jika ImageGenerationModel tidak ditemukan, kita beri instruksi lewat multimodal
                 
-                # Mengambil hasil gambar pertama
-                generated_image = response.images[0]
+                # Coba inisialisasi model gambar secara dinamis
+                try:
+                    imagen = genai.ImageGenerationModel("imagen-3")
+                    response = imagen.generate_images(prompt=prompt)
+                    img_result = response.images[0]._pil_image
+                except AttributeError:
+                    # Jika versi library tidak mendukung attribute tadi, 
+                    # kita tampilkan pesan edukatif atau gunakan fallback
+                    st.error("Library di server perlu di-update melalui requirements.txt (Versi 0.8.3+)")
+                    st.stop()
                 
-                # Langsung tampilkan di aplikasi
-                st.image(generated_image._pil_image, use_container_width=True)
-                st.success("Berhasil dibuat!")
-
-                # Simpan gambar ke history (agar tidak hilang saat halaman di-refresh)
-                st.session_state.image_history.append({
+                # Tampilkan Hasil
+                st.image(img_result, caption="Hasil Render v2.5", use_container_width=True)
+                
+                # Simpan ke history
+                st.session_state.chat_history.append({
                     "role": "assistant", 
                     "type": "image", 
-                    "content": generated_image._pil_image
+                    "content": img_result
                 })
 
             except Exception as e:
-                st.error(f"Gagal membuat gambar: {e}")
-                st.info("Catatan: Pastikan prompt tidak melanggar kebijakan konten Google.")
+                st.error(f"Terjadi kesalahan: {e}")
+                st.warning("Tips: Pastikan akun Google AI Studio Anda memiliki kuota untuk Imagen-3.")
 
 # --- FOOTER ---
 st.write("---")
-st.caption("Powered by Google Imagen-3 | 2026 Edition")
+st.caption("AI Studio 2026 | Versi 2.5 Stabil")
