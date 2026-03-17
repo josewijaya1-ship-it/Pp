@@ -1,25 +1,24 @@
 import streamlit as st
 import google.generativeai as genai
 from PIL import Image
-import time
 
-# --- CONFIG ---
-st.set_page_config(page_title="AI Studio 3.0", page_icon="🎨")
+# --- 1. CONFIG ---
+st.set_page_config(page_title="AI Studio v3.5", page_icon="🎨")
 
-# --- API SETUP ---
+# --- 2. API SETUP ---
 if "GEMINI_API_KEY" not in st.secrets:
-    st.error("API Key tidak ditemukan di Secrets!")
+    st.error("API Key belum diset di Secrets!")
     st.stop()
 
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 
-# --- SESSION STATE ---
+# --- 3. SESSION STATE ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# --- TAMPILAN ---
-st.title("🎨 AI Image Studio v3.0")
-st.caption("Versi Kompatibilitas Tinggi (Anti-Error)")
+# --- 4. TAMPILAN ---
+st.title("🎨 AI Image Studio v3.5")
+st.caption("Mode Kompatibilitas Maksimal")
 
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
@@ -28,35 +27,39 @@ for msg in st.session_state.messages:
         else:
             st.image(msg["content"], use_container_width=True)
 
-# --- LOGIKA GENERATE ---
-if prompt := st.chat_input("Ketik deskripsi gambar..."):
+# --- 5. LOGIKA GENERATE ---
+if prompt := st.chat_input("Contoh: Lukisan cat air bunga mawar..."):
     st.session_state.messages.append({"role": "user", "type": "text", "content": prompt})
     with st.chat_message("user"):
         st.write(prompt)
 
     with st.chat_message("assistant"):
-        with st.spinner("Proses pembuatan gambar..."):
+        with st.spinner("Sedang membuat gambar..."):
             try:
-                # Menggunakan inisialisasi model yang paling dasar (paling stabil)
-                # Kita panggil Imagen 3 secara eksplisit sebagai string model
-                model = genai.GenerativeModel("imagen-3")
+                # MENGGUNAKAN MODEL FLASH UNTUK MENGHASILKAN GAMBAR
+                # Ini adalah cara paling stabil jika model 'imagen' spesifik ditolak
+                model = genai.GenerativeModel("gemini-1.5-flash")
                 
-                # Metode panggil gambar versi alternatif
-                response = model.generate_content(prompt)
+                # Kita kirim instruksi spesifik agar dia memberikan output gambar
+                response = model.generate_content(
+                    f"Generate a high quality image based on this description: {prompt}. "
+                    "Return ONLY the image data."
+                )
                 
-                # Mengambil gambar dari kandidat response
-                # Jika response mengandung data gambar (blob)
-                img = response.candidates[0].content.parts[0].inline_data.data
+                # Cek apakah ada data gambar dalam response
+                found_image = False
+                for part in response.candidates[0].content.parts:
+                    if hasattr(part, 'inline_data'):
+                        img_data = part.inline_data.data
+                        st.image(img_data, use_container_width=True)
+                        st.session_state.messages.append({"role": "assistant", "type": "image", "content": img_data})
+                        found_image = True
+                        break
                 
-                st.image(img, use_container_width=True)
-                st.session_state.messages.append({"role": "assistant", "type": "image", "content": img})
+                if not found_image:
+                    # Jika response hanya teks, tampilkan teksnya
+                    st.write(response.text)
+                    st.warning("AI memberikan respon teks. Pastikan akun Anda mendukung fitur Image Generation.")
                 
             except Exception as e:
-                # Jika masih gagal, kita gunakan fallback ke model flash dengan instruksi gambar
-                try:
-                    model_flash = genai.GenerativeModel("gemini-1.5-flash")
-                    res = model_flash.generate_content(f"Generate an image of: {prompt}")
-                    st.write(res.text)
-                    st.info("Catatan: Jika gambar tidak muncul, pastikan 'Imagen' sudah aktif di Google AI Studio kamu.")
-                except:
-                    st.error(f"Sistem gagal: {e}")
+                st.error(f"Kesalahan sistem: {e}")
